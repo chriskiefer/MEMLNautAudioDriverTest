@@ -1,0 +1,6 @@
+[submodule "src/memlp"]
+	path = src/memlp
+	url = git@github.com:MusicallyEmbodiedML/memlp.git
+[submodule "src/memllib"]
+	path = src/memllib
+	url = git@github.com:MusicallyEmbodiedML/memllib.git
