@@ -314,7 +314,6 @@ protected:
 std::shared_ptr<IMLInterface> interface;
 std::shared_ptr<FMSynthAudioApp> audio_app;
 
-
 // Inter-core communication
 volatile bool core_0_ready = false;
 volatile bool core_1_ready = false;
@@ -324,6 +323,11 @@ volatile bool interface_ready = false;
 
 // We're only bound to the joystick inputs (x, y, rotate)
 const size_t kN_InputParams = 3;
+
+// Add these macros near other globals
+#define MEMORY_BARRIER() __sync_synchronize()
+#define WRITE_VOLATILE(var, val) do { MEMORY_BARRIER(); (var) = (val); MEMORY_BARRIER(); } while (0)
+#define READ_VOLATILE(var) ({ MEMORY_BARRIER(); typeof(var) __temp = (var); MEMORY_BARRIER(); __temp; })
 
 
 void bind_interface(std::shared_ptr<IMLInterface> interface)
@@ -372,25 +376,31 @@ void setup()
     Serial.begin(115200);
     while (!Serial) {}
     Serial.println("Serial initialised.");
-    serial_ready = 1;
+    WRITE_VOLATILE(serial_ready, true);
 
     // Setup board
     MEMLNaut::Initialize();
-
-    // Set LED to blink
     pinMode(33, OUTPUT);
 
-    // Setup interface
-    interface = std::make_shared<IMLInterface>();
-    interface->setup(kN_InputParams, FMSynthAudioApp::kN_Params);
-    interface_ready = true;
+    // Setup interface with memory barrier protection
+    {
+        auto temp_interface = std::make_shared<IMLInterface>();
+        temp_interface->setup(kN_InputParams, FMSynthAudioApp::kN_Params);
+        MEMORY_BARRIER();
+        interface = temp_interface;
+        MEMORY_BARRIER();
+    }
+    WRITE_VOLATILE(interface_ready, true);
 
-    // Bind interface to MEMLNaut
+    // Bind interface after ensuring it's fully initialized
     bind_interface(interface);
     Serial.println("Bound interface to MEMLNaut.");
 
-    core_0_ready = true; // Indicate core 0 is ready
-    while (!core_1_ready) {}
+    WRITE_VOLATILE(core_0_ready, true);
+    while (!READ_VOLATILE(core_1_ready)) {
+        MEMORY_BARRIER();
+        delay(1);
+    }
 
     Serial.println("Finished initialising core 0.");
 }
@@ -413,19 +423,33 @@ void loop()
 
 void setup1()
 {
-    while (!serial_ready) {} // Wait for serial to be ready
+    while (!READ_VOLATILE(serial_ready)) {
+        MEMORY_BARRIER();
+        delay(1);
+    }
 
-    audio_app = std::make_shared<FMSynthAudioApp>();
-    while (!interface_ready);  // Wait for interface to be ready
+    while (!READ_VOLATILE(interface_ready)) {
+        MEMORY_BARRIER();
+        delay(1);
+    }
 
-    audio_app->Setup(AudioDriver::GetSampleRate(),
-            interface);
+    // Create audio app with memory barrier protection
+    {
+        auto temp_audio_app = std::make_shared<FMSynthAudioApp>();
+        temp_audio_app->Setup(AudioDriver::GetSampleRate(), interface);
+        MEMORY_BARRIER();
+        audio_app = temp_audio_app;
+        MEMORY_BARRIER();
+    }
 
     // Start audio driver
     AudioDriver::Setup();
 
-    core_1_ready = true; // Indicate core 1 is ready
-    while (!core_0_ready) {}
+    WRITE_VOLATILE(core_1_ready, true);
+    while (!READ_VOLATILE(core_0_ready)) {
+        MEMORY_BARRIER();
+        delay(1);
+    }
 
     Serial.println("Finished initialising core 1.");
 }
