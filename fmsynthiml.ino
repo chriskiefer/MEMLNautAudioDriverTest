@@ -34,6 +34,8 @@ public:
         input_updated_ = false;
 
         Serial.println("IMLInterface setup done");
+        Serial.print("Address of n_inputs_: ");
+        Serial.println(reinterpret_cast<uintptr_t>(&n_inputs_));
         Serial.print("Inputs: ");
         Serial.print(n_inputs_);
         Serial.print(", Outputs: ");
@@ -59,7 +61,6 @@ public:
 
     void ProcessInput()
     {
-        Serial.println("Processing input...");
         // Check if input is updated
         if (perform_inference_ && input_updated_) {
             MLInference_(input_state_);
@@ -80,11 +81,13 @@ public:
             Serial.println(" out of bounds.");
             return;
         }
+
         if (value < 0) {
             value = 0;
         } else if (value > 1.0) {
             value = 1.0;
         }
+
         // Update state of input
         input_state_[index] = value;
         input_updated_ = true;
@@ -296,15 +299,9 @@ public:
 
     void ProcessParams(const std::vector<float>& params) override
     {
-        Serial.print("Processing parameters: ");
-        // Process parameters received from the queue
-        for (const auto& param : params) {
-            Serial.print(param);
-            Serial.print(", ");
-        }
-        Serial.println();
         // Map parameters to the synth
         synth_.mapParameters(params);
+        //Serial.print("Params processed.");
     }
 
 protected:
@@ -322,6 +319,7 @@ std::shared_ptr<FMSynthAudioApp> audio_app;
 volatile bool core_0_ready = false;
 volatile bool core_1_ready = false;
 volatile bool serial_ready = false;
+volatile bool interface_ready = false;
 
 
 // We're only bound to the joystick inputs (x, y, rotate)
@@ -331,39 +329,39 @@ const size_t kN_InputParams = 3;
 void bind_interface(std::shared_ptr<IMLInterface> interface)
 {
     // Set up momentary switch callbacks
-    MEMLNaut::Instance()->setMomA1Callback([&interface] () {
+    MEMLNaut::Instance()->setMomA1Callback([interface] () {
         interface->Randomise();
     });
-    MEMLNaut::Instance()->setMomA2Callback([&interface] () {
+    MEMLNaut::Instance()->setMomA2Callback([interface] () {
         interface->ClearData();
     });
 
     // Set up toggle switch callbacks
-    MEMLNaut::Instance()->setTogA1Callback([&interface] (bool state) {
+    MEMLNaut::Instance()->setTogA1Callback([interface] (bool state) {
         interface->SetTrainingMode(state ? IMLInterface::TRAINING_MODE : IMLInterface::INFERENCE_MODE);
     });
-    MEMLNaut::Instance()->setJoySWCallback([&interface] (bool state) {
-        interface->SaveInput(state ? IMLInterface::STORE_POSITION_MODE : IMLInterface::STORE_VALUE_MODE);
+    MEMLNaut::Instance()->setJoySWCallback([interface] (bool state) {
+        interface->SaveInput(state ? IMLInterface::STORE_VALUE_MODE : IMLInterface::STORE_POSITION_MODE);
     });
 
     // Set up ADC callbacks
-    MEMLNaut::Instance()->setJoyXCallback([&interface] (float value) {
+    MEMLNaut::Instance()->setJoyXCallback([interface] (float value) {
         interface->SetInput(0, value);
     });
-    MEMLNaut::Instance()->setJoyYCallback([&interface] (float value) {
+    MEMLNaut::Instance()->setJoyYCallback([interface] (float value) {
         interface->SetInput(1, value);
     });
-    MEMLNaut::Instance()->setJoyZCallback([&interface] (float value) {
+    MEMLNaut::Instance()->setJoyZCallback([interface] (float value) {
         interface->SetInput(2, value);
     });
-    MEMLNaut::Instance()->setRVZ1Callback([&interface] (float value) {
+    MEMLNaut::Instance()->setRVZ1Callback([interface] (float value) {
         // Scale value from 0-1 range to 1-3000
         value = 1.0f + (value * 2999.0f);
         interface->SetIterations(static_cast<size_t>(value));
     });
 
     // Set up loop callback
-    MEMLNaut::Instance()->setLoopCallback([&interface] () {
+    MEMLNaut::Instance()->setLoopCallback([interface] () {
         interface->ProcessInput();
     });
 }
@@ -385,6 +383,7 @@ void setup()
     // Setup interface
     interface = std::make_shared<IMLInterface>();
     interface->setup(kN_InputParams, FMSynthAudioApp::kN_Params);
+    interface_ready = true;
 
     // Bind interface to MEMLNaut
     bind_interface(interface);
@@ -392,6 +391,8 @@ void setup()
 
     core_0_ready = true; // Indicate core 0 is ready
     while (!core_1_ready) {}
+
+    Serial.println("Finished initialising core 0.");
 }
 
 void loop()
@@ -415,7 +416,7 @@ void setup1()
     while (!serial_ready) {} // Wait for serial to be ready
 
     audio_app = std::make_shared<FMSynthAudioApp>();
-    while (!interface);  // Wait for interface to be ready
+    while (!interface_ready);  // Wait for interface to be ready
 
     audio_app->Setup(AudioDriver::GetSampleRate(),
             interface);
@@ -425,6 +426,8 @@ void setup1()
 
     core_1_ready = true; // Indicate core 1 is ready
     while (!core_0_ready) {}
+
+    Serial.println("Finished initialising core 1.");
 }
 
 void loop1()
