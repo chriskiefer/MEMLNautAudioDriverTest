@@ -291,7 +291,7 @@ public:
         float lfo1val = (lfo1.triangle(lfo1freq) * lfo1depth);
         svf.setParams(filter1freq * (1.f + lfo1val),filter1res);
         y = svf.play(y, filterMix,1.0-filterMix,0,0);
-        y *= 0.2f;
+        y *= 0.9f;
         stereosample_t ret { y, y };
         return ret;
     }
