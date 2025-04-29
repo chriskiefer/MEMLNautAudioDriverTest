@@ -100,19 +100,23 @@ public:
 
     void SaveInput(saving_mode_t mode)
     {
-        if (STORE_VALUE_MODE == mode) {
+        if (training_mode_ == TRAINING_MODE) {
+            if (STORE_VALUE_MODE == mode) {
 
-            Serial.println("Move input to position...");
-            perform_inference_ = false;
+                Serial.println("Move input to position...");
+                perform_inference_ = false;
 
-        } else {  // STORE_POSITION_MODE
+            } else {  // STORE_POSITION_MODE
 
-            Serial.println("Creating example in this position.");
-            // Save pair in the dataset
-            dataset_->Add(input_state_, output_state_);
-            perform_inference_ = true;
-            MLInference_(input_state_);
+                Serial.println("Creating example in this position.");
+                // Save pair in the dataset
+                dataset_->Add(input_state_, output_state_);
+                perform_inference_ = true;
+                MLInference_(input_state_);
 
+            }
+        } else {
+            Serial.println("Switch to training mode first.");
         }
     }
 
@@ -121,6 +125,8 @@ public:
         if (training_mode_ == TRAINING_MODE) {
             Serial.println("Clearing dataset...");
             dataset_->Clear();
+        } else {
+            Serial.println("Switch to training mode first.");
         }
     }
 
@@ -130,6 +136,8 @@ public:
             Serial.println("Randomising weights...");
             MLRandomise_();
             MLInference_(input_state_);
+        } else {
+            Serial.println("Switch to training mode first.");
         }
     }
 
@@ -418,7 +426,7 @@ void bind_interface(std::shared_ptr<IMLInterface> interface)
 void setup()
 {
     Serial.begin(115200);
-    while (!Serial) {}
+    //while (!Serial) {}
     Serial.println("Serial initialised.");
     WRITE_VOLATILE(serial_ready, true);
 
