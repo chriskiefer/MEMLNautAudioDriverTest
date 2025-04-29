@@ -70,10 +70,10 @@ public:
 
     void SetInput(size_t index, float value)
     {
-        Serial.print("Input ");
-        Serial.print(index);
-        Serial.print(" set to: ");
-        Serial.println(value);
+        // Serial.print("Input ");
+        // Serial.print(index);
+        // Serial.print(" set to: ");
+        // Serial.println(value);
 
         if (index >= n_inputs_) {
             Serial.print("Input index ");
@@ -276,17 +276,22 @@ protected:
     }
 };
 
-class FMSynthAudioApp : public AudioAppBase
+class SubtractiveSynthAudioApp : public AudioAppBase
 {
 public:
-    static constexpr size_t kN_Params = kN_synthparams;
+    static constexpr size_t kN_Params = 10;
 
-    FMSynthAudioApp() : AudioAppBase(),
-        synth_(AudioDriver::GetSampleRate()) {}
+    SubtractiveSynthAudioApp() : AudioAppBase() {}
 
     stereosample_t Process(const stereosample_t x) override
     {
-        float y = synth_.process();
+        float y = osc1.sawn(osc1freq);
+        y += osc2.sawn(osc2freq);
+        y += osc3.sawn(osc3freq);
+        float lfo1val = (lfo1.triangle(lfo1freq) * lfo1depth);
+        svf.setParams(filter1freq * (1.f + lfo1val),filter1res);
+        y = svf.play(y, filterMix,1.0-filterMix,0,0);
+        y *= 0.2f;
         stereosample_t ret { y, y };
         return ret;
     }
@@ -299,20 +304,54 @@ public:
 
     void ProcessParams(const std::vector<float>& params) override
     {
-        // Map parameters to the synth
-        synth_.mapParameters(params);
-        //Serial.print("Params processed.");
+        // // Map parameters to the synth
+        // synth_.mapParameters(params);
+        // //Serial.print("Params processed.");
+        osc1freq = 50.f + (params[0] * 50.f);
+        osc2freq = osc1freq * (1.f + (params[1] * 0.1f));
+        osc3freq = osc1freq * (1.f + (params[2] * 0.5f));
+
+        filter1freq = 80.f + (params[3] * params[3] * 5000.f);
+        filter1res = (params[4] * 8.f);
+        
+        lfo1freq = 0.1f + (params[5] * params[5] * 20.f);
+        lfo1depth = params[6] * 0.5f;
+
+        filterMix = params[7];
+
+
     }
 
 protected:
+    maxiOsc osc1;
+    maxiOsc osc2;
+    maxiOsc osc3;
+    maxiOsc lfo1;
+    maxiOsc lfo2;
 
-    FMSynth synth_;
+    float osc1freq = 100;
+    float osc2freq = 101;
+    float osc3freq = 102;
+
+    float lfo1freq = 1;
+    float lfo1depth = 0.1;
+
+    maxiFilter filter1;
+    maxiSVF svf;
+
+    float filter1freq = 100;
+    float filter1res = 2.f;
+
+    float filterMix=1;
+
 };
+
+
 
 
 // Global objects
 std::shared_ptr<IMLInterface> interface;
-std::shared_ptr<FMSynthAudioApp> audio_app;
+std::shared_ptr<SubtractiveSynthAudioApp> audio_app;
 
 // Inter-core communication
 volatile bool core_0_ready = false;
@@ -368,6 +407,11 @@ void bind_interface(std::shared_ptr<IMLInterface> interface)
     MEMLNaut::Instance()->setLoopCallback([interface] () {
         interface->ProcessInput();
     });
+
+    MEMLNaut::Instance()->setRVGain1Callback([interface] (float value) {
+        AudioDriver::setHeadphoneVolume(value);
+        Serial.println(value*4);
+    });
 }
 
 
@@ -385,7 +429,7 @@ void setup()
     // Setup interface with memory barrier protection
     {
         auto temp_interface = std::make_shared<IMLInterface>();
-        temp_interface->setup(kN_InputParams, FMSynthAudioApp::kN_Params);
+        temp_interface->setup(kN_InputParams, SubtractiveSynthAudioApp::kN_Params);
         MEMORY_BARRIER();
         interface = temp_interface;
         MEMORY_BARRIER();
@@ -435,7 +479,7 @@ void setup1()
 
     // Create audio app with memory barrier protection
     {
-        auto temp_audio_app = std::make_shared<FMSynthAudioApp>();
+        auto temp_audio_app = std::make_shared<SubtractiveSynthAudioApp>();
         temp_audio_app->Setup(AudioDriver::GetSampleRate(), interface);
         MEMORY_BARRIER();
         audio_app = temp_audio_app;
