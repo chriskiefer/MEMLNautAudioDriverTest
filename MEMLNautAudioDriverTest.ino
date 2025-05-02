@@ -100,23 +100,19 @@ public:
 
     void SaveInput(saving_mode_t mode)
     {
-        if (training_mode_ == TRAINING_MODE) {
-            if (STORE_VALUE_MODE == mode) {
+        if (STORE_VALUE_MODE == mode) {
 
-                Serial.println("Move input to position...");
-                perform_inference_ = false;
+            Serial.println("Move input to position...");
+            perform_inference_ = false;
 
-            } else {  // STORE_POSITION_MODE
+        } else {  // STORE_POSITION_MODE
 
-                Serial.println("Creating example in this position.");
-                // Save pair in the dataset
-                dataset_->Add(input_state_, output_state_);
-                perform_inference_ = true;
-                MLInference_(input_state_);
+            Serial.println("Creating example in this position.");
+            // Save pair in the dataset
+            dataset_->Add(input_state_, output_state_);
+            perform_inference_ = true;
+            MLInference_(input_state_);
 
-            }
-        } else {
-            Serial.println("Switch to training mode first.");
         }
     }
 
@@ -125,8 +121,6 @@ public:
         if (training_mode_ == TRAINING_MODE) {
             Serial.println("Clearing dataset...");
             dataset_->Clear();
-        } else {
-            Serial.println("Switch to training mode first.");
         }
     }
 
@@ -136,8 +130,6 @@ public:
             Serial.println("Randomising weights...");
             MLRandomise_();
             MLInference_(input_state_);
-        } else {
-            Serial.println("Switch to training mode first.");
         }
     }
 
@@ -284,22 +276,28 @@ protected:
     }
 };
 
-class SubtractiveSynthAudioApp : public AudioAppBase
+class AudioTestApp : public AudioAppBase
 {
 public:
     static constexpr size_t kN_Params = 10;
 
-    SubtractiveSynthAudioApp() : AudioAppBase() {}
+    AudioTestApp() : AudioAppBase() {}
 
     stereosample_t Process(const stereosample_t x) override
     {
-        float y = osc1.sawn(osc1freq);
-        y += osc2.sawn(osc2freq);
-        y += osc3.sawn(osc3freq);
-        float lfo1val = (lfo1.triangle(lfo1freq) * lfo1depth);
-        svf.setParams(filter1freq * (1.f + lfo1val),filter1res);
-        y = svf.play(y, filterMix,1.0-filterMix,0,0);
-        y *= 0.9f;
+        if (frame++ == 48000) {
+            frame = 0;
+            nSines++;
+            nSinesRcpr = 1.f/nSines;
+            Serial.printf("N: %d\n", nSines);
+        }
+        float y = 0.f;
+        float freq=200;
+        for(size_t i=0; i < nSines; i++) {
+            y += oscs[i].sinebuf(freq);
+            freq+=10;
+        }
+        y *= nSinesRcpr;
         stereosample_t ret { y, y };
         return ret;
     }
@@ -307,6 +305,7 @@ public:
     void Setup(float sample_rate, std::shared_ptr<InterfaceBase> interface) override
     {
         AudioAppBase::Setup(sample_rate, interface);
+        oscs.resize(500);
         // Additional setup code specific to FMSynthAudioApp
     }
 
@@ -315,42 +314,16 @@ public:
         // // Map parameters to the synth
         // synth_.mapParameters(params);
         // //Serial.print("Params processed.");
-        osc1freq = 50.f + (params[0] * 50.f);
-        osc2freq = osc1freq * (1.f + (params[1] * 0.1f));
-        osc3freq = osc1freq * (1.f + (params[2] * 0.5f));
-
-        filter1freq = 80.f + (params[3] * params[3] * 5000.f);
-        filter1res = (params[4] * 8.f);
-        
-        lfo1freq = 0.1f + (params[5] * params[5] * 20.f);
-        lfo1depth = params[6] * 0.5f;
-
-        filterMix = params[7];
-
 
     }
 
 protected:
     maxiOsc osc1;
-    maxiOsc osc2;
-    maxiOsc osc3;
-    maxiOsc lfo1;
-    maxiOsc lfo2;
-
-    float osc1freq = 100;
-    float osc2freq = 101;
-    float osc3freq = 102;
-
-    float lfo1freq = 1;
-    float lfo1depth = 0.1;
-
-    maxiFilter filter1;
-    maxiSVF svf;
-
-    float filter1freq = 100;
-    float filter1res = 2.f;
-
-    float filterMix=1;
+    std::vector<maxiOsc> oscs;
+    size_t frame=0;
+    size_t nSines=1;
+    float nSinesRcpr=1;
+    
 
 };
 
@@ -359,7 +332,7 @@ protected:
 
 // Global objects
 std::shared_ptr<IMLInterface> interface;
-std::shared_ptr<SubtractiveSynthAudioApp> audio_app;
+std::shared_ptr<AudioTestApp> audio_app;
 
 // Inter-core communication
 volatile bool core_0_ready = false;
@@ -417,8 +390,7 @@ void bind_interface(std::shared_ptr<IMLInterface> interface)
     });
 
     MEMLNaut::Instance()->setRVGain1Callback([interface] (float value) {
-        AudioDriver::setHeadphoneVolume(value);
-        Serial.println(value*4);
+        AudioDriver::setDACVolume(value);
     });
 }
 
@@ -426,7 +398,7 @@ void bind_interface(std::shared_ptr<IMLInterface> interface)
 void setup()
 {
     Serial.begin(115200);
-    //while (!Serial) {}
+    while (!Serial) {}
     Serial.println("Serial initialised.");
     WRITE_VOLATILE(serial_ready, true);
 
@@ -437,7 +409,7 @@ void setup()
     // Setup interface with memory barrier protection
     {
         auto temp_interface = std::make_shared<IMLInterface>();
-        temp_interface->setup(kN_InputParams, SubtractiveSynthAudioApp::kN_Params);
+        temp_interface->setup(kN_InputParams, AudioTestApp::kN_Params);
         MEMORY_BARRIER();
         interface = temp_interface;
         MEMORY_BARRIER();
@@ -487,7 +459,7 @@ void setup1()
 
     // Create audio app with memory barrier protection
     {
-        auto temp_audio_app = std::make_shared<SubtractiveSynthAudioApp>();
+        auto temp_audio_app = std::make_shared<AudioTestApp>();
         temp_audio_app->Setup(AudioDriver::GetSampleRate(), interface);
         MEMORY_BARRIER();
         audio_app = temp_audio_app;
