@@ -276,12 +276,12 @@ protected:
     }
 };
 
-class AudioTestApp : public AudioAppBase
+class PAFSynthApp : public AudioAppBase
 {
 public:
     static constexpr size_t kN_Params = 10;
 
-    AudioTestApp() : AudioAppBase() {}
+    PAFSynthApp() : AudioAppBase() {}
 
     stereosample_t Process(const stereosample_t x) override
     {
@@ -332,7 +332,7 @@ protected:
 
 // Global objects
 std::shared_ptr<IMLInterface> interface;
-std::shared_ptr<AudioTestApp> audio_app;
+std::shared_ptr<PAFSynthApp> audio_app;
 
 // Inter-core communication
 volatile bool core_0_ready = false;
@@ -409,7 +409,7 @@ void setup()
     // Setup interface with memory barrier protection
     {
         auto temp_interface = std::make_shared<IMLInterface>();
-        temp_interface->setup(kN_InputParams, AudioTestApp::kN_Params);
+        temp_interface->setup(kN_InputParams, PAFSynthApp::kN_Params);
         MEMORY_BARRIER();
         interface = temp_interface;
         MEMORY_BARRIER();
@@ -459,7 +459,7 @@ void setup1()
 
     // Create audio app with memory barrier protection
     {
-        auto temp_audio_app = std::make_shared<AudioTestApp>();
+        auto temp_audio_app = std::make_shared<PAFSynthApp>();
         temp_audio_app->Setup(AudioDriver::GetSampleRate(), interface);
         MEMORY_BARRIER();
         audio_app = temp_audio_app;
